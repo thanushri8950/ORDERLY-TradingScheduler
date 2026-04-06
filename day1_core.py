@@ -84,6 +84,67 @@ def priority_scheduler(df):
     return pd.DataFrame(completed)
 
 
+
+
+
+#--step3--
+
+
+def predictive_scheduler(df):
+    df = df.copy()
+    completed = []
+    current_time = 0
+
+    # Convert priority to float (for aging)
+    df["priority"] = df["priority"].astype(float)
+
+    while not df.empty:
+        available = df[df["arrival_time"] <= current_time]
+
+        if available.empty:
+            current_time += 1
+            continue
+
+        # 🔥 STEP 1: Aging (increase priority over time)
+        for i in available.index:
+            wait_time = current_time - df.loc[i, "arrival_time"]
+            df.loc[i, "priority"] -= 0.2 * wait_time   # aging factor
+
+        # 🔥 STEP 2: Retail boost (fairness)
+        for i in available.index:
+            if df.loc[i, "user_type"] == "RETAIL":
+                df.loc[i, "priority"] -= 1.0
+
+        # 🔥 STEP 3: Short job boost (VERY IMPORTANT)
+        for i in available.index:
+            burst = df.loc[i, "burst_time"]
+            df.loc[i, "priority"] -= (1 / burst) * 2
+
+
+
+
+
+        # 🔥final STEP : Select best job
+        idx = df.loc[available.index]["priority"].idxmin()
+        job = df.loc[idx]
+
+        start_time = max(current_time, job["arrival_time"])
+        completion_time = start_time + job["burst_time"]
+
+        completed.append({
+            **job,
+            "start_time": start_time,
+            "completion_time": completion_time,
+            "waiting_time": start_time - job["arrival_time"],
+            "turnaround_time": completion_time - job["arrival_time"]
+        })
+
+        current_time = completion_time
+        df = df.drop(idx)
+
+    return pd.DataFrame(completed)
+
+
 # ------------------ MAIN ------------------
 if __name__ == "__main__":
     df = generate_orders(50, burst=True)
@@ -104,3 +165,13 @@ if __name__ == "__main__":
 
     print("\nMax Waiting Time (FCFS):", fcfs_result["waiting_time"].max())
     print("Max Waiting Time (Priority):", priority_result["waiting_time"].max())
+
+    predictive_result = predictive_scheduler(df)
+
+print("\nPredictive Scheduling Result:\n")
+print(predictive_result)
+
+print("\nAverage Waiting Time (Predictive):", predictive_result["waiting_time"].mean())
+print("Max Waiting Time (Predictive):", predictive_result["waiting_time"].max())
+print("Min Waiting Time:", predictive_result["waiting_time"].min())
+
