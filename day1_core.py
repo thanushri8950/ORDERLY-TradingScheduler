@@ -145,6 +145,24 @@ def predictive_scheduler(df):
     return pd.DataFrame(completed)
 
 
+
+def detect_burst(df, window=3, threshold=10):
+    burst_times = []
+
+    max_time = df["arrival_time"].max()
+
+    for t in range(max_time + 1):
+        count = len(df[
+            (df["arrival_time"] >= t) &
+            (df["arrival_time"] < t + window)
+        ])
+
+        if count >= threshold:
+            burst_times.append(t)
+
+    return burst_times
+
+
 # ------------------ MAIN ------------------
 if __name__ == "__main__":
     df = generate_orders(50, burst=True)
@@ -174,4 +192,8 @@ print(predictive_result)
 print("\nAverage Waiting Time (Predictive):", predictive_result["waiting_time"].mean())
 print("Max Waiting Time (Predictive):", predictive_result["waiting_time"].max())
 print("Min Waiting Time:", predictive_result["waiting_time"].min())
+
+burst_points = detect_burst(df)
+
+print("\nBurst Detected at times:", burst_points)
 
