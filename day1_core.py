@@ -86,7 +86,7 @@ def priority_scheduler(df):
 
 # ------------------ MAIN ------------------
 if __name__ == "__main__":
-    df = generate_orders(10)
+    df = generate_orders(50, burst=True)
 
     print("\nGenerated Orders:\n")
     print(df)
@@ -101,3 +101,6 @@ if __name__ == "__main__":
 
     print("\nAverage Waiting Time (FCFS):", fcfs_result["waiting_time"].mean())
     print("Average Waiting Time (Priority):", priority_result["waiting_time"].mean())
+
+    print("\nMax Waiting Time (FCFS):", fcfs_result["waiting_time"].max())
+    print("Max Waiting Time (Priority):", priority_result["waiting_time"].max())
