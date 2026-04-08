@@ -174,6 +174,7 @@ def run_full_simulation(n=50):
     fcfs = fcfs_scheduler(df)
     priority = priority_scheduler(df)
 
+<<<<<<< Updated upstream
     burst = detect_burst(df)
     predictive = predictive_scheduler(df, burst)
 
@@ -191,3 +192,52 @@ def run_full_simulation(n=50):
         },
         "burst": burst
     }
+=======
+    max_time = df["arrival_time"].max()
+
+    for t in range(max_time + 1):
+        count = len(df[
+            (df["arrival_time"] >= t) &
+            (df["arrival_time"] < t + window)
+        ])
+
+        if count >= threshold:
+            burst_times.append(t)
+
+    return burst_times
+
+
+# ------------------ MAIN ------------------
+if __name__ == "__main__":
+    df = generate_orders(50, burst=True)
+
+    print("\nGenerated Orders:\n")
+    print(df)
+
+    fcfs_result = fcfs_scheduler(df)
+    print("\nFCFS Scheduling Result:\n")
+    print(fcfs_result)
+
+    priority_result = priority_scheduler(df)
+    print("\nPriority Scheduling Result:\n")
+    print(priority_result)
+
+    print("\nAverage Waiting Time (FCFS):", fcfs_result["waiting_time"].mean())
+    print("Average Waiting Time (Priority):", priority_result["waiting_time"].mean())
+
+    print("\nMax Waiting Time (FCFS):", fcfs_result["waiting_time"].max())
+    print("Max Waiting Time (Priority):", priority_result["waiting_time"].max())
+
+    predictive_result = predictive_scheduler(df)
+
+print("\nPredictive Scheduling Result:\n")
+print(predictive_result)
+
+print("\nAverage Waiting Time (Predictive):", predictive_result["waiting_time"].mean())
+print("Max Waiting Time (Predictive):", predictive_result["waiting_time"].max())
+print("Min Waiting Time:", predictive_result["waiting_time"].min())
+
+burst_points = detect_burst(df)
+
+print("\nBurst Detected at times:", burst_points)
+>>>>>>> Stashed changes
