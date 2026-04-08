@@ -1,7 +1,6 @@
 import random
 import pandas as pd
 
-
 # ------------------ ORDER GENERATOR ------------------
 def generate_orders(n=10, burst=False):
     orders = []
@@ -84,47 +83,70 @@ def priority_scheduler(df):
     return pd.DataFrame(completed)
 
 
+# ------------------ BURST DETECTOR ------------------
+def detect_burst(df, window=3, threshold=10):
+    burst_times = []
+
+    max_time = df["arrival_time"].max()
+
+    for t in range(max_time + 1):
+        count = len(df[
+            (df["arrival_time"] >= t) &
+            (df["arrival_time"] < t + window)
+        ])
+
+        if count >= threshold:
+            burst_times.append(t)
+
+    return burst_times
 
 
-
-#--step3--
-
-
-def predictive_scheduler(df):
-    df = df.copy()
+# ------------------ PREDICTIVE ------------------
+def predictive_scheduler(df, burst_points):
+    df = df.copy().reset_index(drop=True)
     completed = []
     current_time = 0
 
-    # Convert priority to float (for aging)
     df["priority"] = df["priority"].astype(float)
 
-    while not df.empty:
+    max_time_limit = 10000  # safety
+
+    while not df.empty and current_time < max_time_limit:
         available = df[df["arrival_time"] <= current_time]
 
         if available.empty:
             current_time += 1
             continue
 
-        # 🔥 STEP 1: Aging (increase priority over time)
+        is_burst = current_time in burst_points
+
+        # 🔥 Adaptive Aging
         for i in available.index:
             wait_time = current_time - df.loc[i, "arrival_time"]
-            df.loc[i, "priority"] -= 0.2 * wait_time   # aging factor
 
-        # 🔥 STEP 2: Retail boost (fairness)
+            if is_burst:
+                df.loc[i, "priority"] -= 0.3 * wait_time
+            else:
+                df.loc[i, "priority"] -= 0.2 * wait_time
+
+        # 🔥 Retail Boost
         for i in available.index:
             if df.loc[i, "user_type"] == "RETAIL":
-                df.loc[i, "priority"] -= 1.0
+                if is_burst:
+                    df.loc[i, "priority"] -= 0.5
+                else:
+                    df.loc[i, "priority"] -= 1.0
 
-        # 🔥 STEP 3: Short job boost (VERY IMPORTANT)
+        # 🔥 Short Job Boost
         for i in available.index:
             burst = df.loc[i, "burst_time"]
-            df.loc[i, "priority"] -= (1 / burst) * 2
 
+            if is_burst:
+                df.loc[i, "priority"] -= (1 / burst) * 3
+            else:
+                df.loc[i, "priority"] -= (1 / burst) * 2
 
-
-
-
-        # 🔥final STEP : Select best job
+        # 🔥 Select best job
         idx = df.loc[available.index]["priority"].idxmin()
         job = df.loc[idx]
 
@@ -145,55 +167,27 @@ def predictive_scheduler(df):
     return pd.DataFrame(completed)
 
 
+# ------------------ MASTER FUNCTION (IMPORTANT) ------------------
+def run_full_simulation(n=50):
+    df = generate_orders(n, burst=True)
 
-def detect_burst(df, window=3, threshold=10):
-    burst_times = []
+    fcfs = fcfs_scheduler(df)
+    priority = priority_scheduler(df)
 
-    max_time = df["arrival_time"].max()
+    burst = detect_burst(df)
+    predictive = predictive_scheduler(df, burst)
 
-    for t in range(max_time + 1):
-        count = len(df[
-            (df["arrival_time"] >= t) &
-            (df["arrival_time"] < t + window)
-        ])
-
-        if count >= threshold:
-            burst_times.append(t)
-
-    return burst_times
-
-
-# ------------------ MAIN ------------------
-if __name__ == "__main__":
-    df = generate_orders(50, burst=True)
-
-    print("\nGenerated Orders:\n")
-    print(df)
-
-    fcfs_result = fcfs_scheduler(df)
-    print("\nFCFS Scheduling Result:\n")
-    print(fcfs_result)
-
-    priority_result = priority_scheduler(df)
-    print("\nPriority Scheduling Result:\n")
-    print(priority_result)
-
-    print("\nAverage Waiting Time (FCFS):", fcfs_result["waiting_time"].mean())
-    print("Average Waiting Time (Priority):", priority_result["waiting_time"].mean())
-
-    print("\nMax Waiting Time (FCFS):", fcfs_result["waiting_time"].max())
-    print("Max Waiting Time (Priority):", priority_result["waiting_time"].max())
-
-    predictive_result = predictive_scheduler(df)
-
-print("\nPredictive Scheduling Result:\n")
-print(predictive_result)
-
-print("\nAverage Waiting Time (Predictive):", predictive_result["waiting_time"].mean())
-print("Max Waiting Time (Predictive):", predictive_result["waiting_time"].max())
-print("Min Waiting Time:", predictive_result["waiting_time"].min())
-
-burst_points = detect_burst(df)
-
-print("\nBurst Detected at times:", burst_points)
-
+    return {
+        "orders": df.to_dict(orient="records"),
+        "fcfs": fcfs.to_dict(orient="records"),
+        "priority": priority.to_dict(orient="records"),
+        "predictive": predictive.to_dict(orient="records"),
+        "metrics": {
+            "fcfs_avg_wait": float(fcfs["waiting_time"].mean()),
+            "priority_avg_wait": float(priority["waiting_time"].mean()),
+            "predictive_avg_wait": float(predictive["waiting_time"].mean()),
+            "fcfs_max_wait": float(fcfs["waiting_time"].max()),
+            "predictive_max_wait": float(predictive["waiting_time"].max())
+        },
+        "burst": burst
+    }
