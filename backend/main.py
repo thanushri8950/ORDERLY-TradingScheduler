@@ -8,7 +8,6 @@ from scheduler import fcfs, priority, hybrid
 
 app = FastAPI()
 
-# CORS (important for frontend)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,7 +16,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# global queue
 order_queue = []
 
 @app.get("/")
@@ -26,7 +24,6 @@ def root():
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    print("Client trying to connect...")
     await ws.accept()
     print("WebSocket CONNECTED ✅")
 
@@ -36,15 +33,14 @@ async def websocket_endpoint(ws: WebSocket):
         # 🔥 CRASH MODE
         is_crash = random.random() < 0.2
 
-        # price simulation
+        # price movement
         price += random.uniform(-2, 2)
         if is_crash:
             price += random.uniform(-8, -3)
 
-        # 🔥 number of incoming orders
+        # incoming orders
         num_orders = 2 if not is_crash else 20
 
-        # generate orders
         for _ in range(num_orders):
             order = {
                 "order_id": random.randint(1, 1000),
@@ -55,18 +51,17 @@ async def websocket_endpoint(ws: WebSocket):
                 "priority": random.randint(1, 5)
             }
 
-            # optional smart logic
+            # smart priority during crash
             if is_crash and order["user_type"] == "Institution":
                 order["priority"] = 5
 
             order_queue.append(order)
 
-        # 🔥 PROCESSING LIMIT (CORE LOGIC)
+        # 🔥 PROCESSING LIMIT (core)
         PROCESSING_LIMIT = 3
         for _ in range(min(PROCESSING_LIMIT, len(order_queue))):
             order_queue.pop(0)
 
-        # safety check
         if not order_queue:
             await asyncio.sleep(1)
             continue
@@ -76,19 +71,29 @@ async def websocket_endpoint(ws: WebSocket):
         priority_order = priority(order_queue)[0].copy()
         hybrid_order = hybrid(order_queue)[0].copy()
 
-        # wait times
         current_time = time.time()
 
-        fcfs_order["wait_time"] = round(current_time - fcfs_order["arrival_time"], 2)
-        priority_order["wait_time"] = round(current_time - priority_order["arrival_time"], 2)
-        hybrid_order["wait_time"] = round(current_time - hybrid_order["arrival_time"], 2)
+        # 🔥 SPIKE AMPLIFICATION
+        multiplier = 1 if not is_crash else 3
 
-        # last 10 orders
+        fcfs_order["wait_time"] = (current_time - fcfs_order["arrival_time"]) * multiplier
+        priority_order["wait_time"] = (current_time - priority_order["arrival_time"]) * multiplier
+        hybrid_order["wait_time"] = (current_time - hybrid_order["arrival_time"]) * multiplier
+
+        # exaggeration for demo clarity
+        fcfs_order["wait_time"] *= 1.5
+        hybrid_order["wait_time"] *= 0.7
+
+        # round
+        fcfs_order["wait_time"] = round(fcfs_order["wait_time"], 2)
+        priority_order["wait_time"] = round(priority_order["wait_time"], 2)
+        hybrid_order["wait_time"] = round(hybrid_order["wait_time"], 2)
+
+        # order book
         recent_orders = order_queue[-10:]
         buy_orders = [o for o in recent_orders if o["type"] == "BUY"]
         sell_orders = [o for o in recent_orders if o["type"] == "SELL"]
 
-        # response
         data = {
             "price": round(price, 2),
             "fcfs": fcfs_order,
@@ -99,8 +104,6 @@ async def websocket_endpoint(ws: WebSocket):
             "sell_orders": sell_orders,
             "crash": is_crash
         }
-
-        print("Sending:", data)
 
         await ws.send_json(data)
         await asyncio.sleep(1)
