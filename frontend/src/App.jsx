@@ -1,251 +1,321 @@
-import { useState, useEffect } from "react";
-import axios from "axios";
+import { useEffect, useState } from "react";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend
 } from "recharts";
 
 function App() {
+  const [buyOrders, setBuyOrders] = useState([]);
+  const [sellOrders, setSellOrders] = useState([]);
+  const [price, setPrice] = useState(0);
+  const [history, setHistory] = useState([]);
+  const [order, setOrder] = useState(null);
+  const [queue, setQueue] = useState(0);
+  const [mode, setMode] = useState("all");
 
-  const [data, setData] = useState(null);
-  const [visibleOrders, setVisibleOrders] = useState([]);
-  const [n, setN] = useState(50);
-  const [burst, setBurst] = useState(true);
-  const [algo, setAlgo] = useState("predictive");
-  const [loading, setLoading] = useState(false);
+  const [stats, setStats] = useState({
+    fcfs: 0,
+    priority: 0,
+    hybrid: 0
+  });
 
-  const runSimulation = async () => {
-    setLoading(true);
-
-    const res = await axios.get(
-      `http://127.0.0.1:8000/run?n=${n}&burst=${burst}`
-    );
-
-    setData(res.data);
-    setVisibleOrders([]);
-
-    setLoading(false);
-  };
+  const best = Math.min(
+    Number(stats.fcfs) || 0,
+    Number(stats.priority) || 0,
+    Number(stats.hybrid) || 0
+  );
 
   useEffect(() => {
-    if (!data) return;
+    const ws = new WebSocket("ws://127.0.0.1:8000/ws");
 
-    let i = 0;
+    ws.onopen = () => console.log("Connected ✅");
 
-    const interval = setInterval(() => {
-      setVisibleOrders((prev) => {
-        if (i < data.orders.length) {
-          return [...prev, data.orders[i]];
-        }
-        return prev;
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      setPrice(data.price);
+      setOrder(data.hybrid);
+      setQueue(data.queue_length);
+
+      setBuyOrders(data.buy_orders || []);
+      setSellOrders(data.sell_orders || []);
+
+      setStats((prev) => {
+        const newFcfs = Number(data.fcfs?.wait_time || 0);
+        const newPriority = Number(data.priority?.wait_time || 0);
+        const newHybrid = Number(data.hybrid?.wait_time || 0);
+
+        return {
+          fcfs: ((Number(prev.fcfs) + newFcfs) / 2).toFixed(2),
+          priority: ((Number(prev.priority) + newPriority) / 2).toFixed(2),
+          hybrid: ((Number(prev.hybrid) + newHybrid) / 2).toFixed(2)
+        };
       });
 
-      i++;
+      setHistory((prev) => [
+        ...prev.slice(-20),
+        {
+          id: Date.now(),
+          fcfs: data.fcfs?.wait_time || 0,
+          priority: data.priority?.wait_time || 0,
+          hybrid: data.hybrid?.wait_time || 0,
+          queue: data.queue_length
+        }
+      ]);
+    };
 
-      if (i >= data.orders.length) {
-        clearInterval(interval);
-      }
-
-    }, burst ? 20 : 60); // smoother speed
-
-    return () => clearInterval(interval);
-  }, [data]);
-
-  const chartData = data ? [
-    { name: "FCFS", value: data.metrics.fcfs_avg_wait },
-    { name: "Priority", value: data.metrics.priority_avg_wait },
-    { name: "Predictive", value: data.metrics.predictive_avg_wait }
-  ] : [];
-
-  const timelineData = data
-    ? data[algo].map((o) => ({
-        name: `O${o.order_id}`,
-        start: o.start_time,
-        duration: o.burst_time
-      }))
-    : [];
+    return () => ws.close();
+  }, []);
 
   return (
-    <div style={{
-      background: "#020617",
-      minHeight: "100vh",
-      color: "#e2e8f0",
-      padding: "20px",
-      fontFamily: "sans-serif"
-    }}>
+    <div
+      style={{
+        background: "#0f172a",
+        color: "white",
+        minHeight: "100vh",
+        padding: "20px",
+        fontFamily: "sans-serif"
+      }}
+    >
+      <h1 style={{ color: "#38bdf8" }}>📈 Trading Terminal</h1>
+      <h3>⚡ Executing: {order?.order_id}</h3>
 
-      {/* 🔥 LOADING OVERLAY */}
-      {loading && (
-        <div style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          background: "rgba(2,6,23,0.9)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000
-        }}>
-          <div style={{ textAlign: "center" }}>
-            <div className="loader"></div>
-            <p style={{ marginTop: "10px" }}>Running simulation...</p>
-          </div>
-        </div>
-      )}
-
-      <h1 style={{
-        color: "#38bdf8",
-        fontWeight: "600"
-      }}>
-        📈 ORDERLY Trading Dashboard
-      </h1>
-
-      {/* CONTROLS */}
-      <div style={{ marginTop: "20px", display: "flex", gap: "20px" }}>
-        
-        <div>
-          <label>Orders: </label>
-          <input
-            type="number"
-            value={n}
-            onChange={(e) => setN(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label>Burst: </label>
-          <input
-            type="checkbox"
-            checked={burst}
-            onChange={() => setBurst(!burst)}
-          />
-        </div>
-
-        <div>
-          <label>Algorithm: </label>
-          <select
-            value={algo}
-            onChange={(e) => setAlgo(e.target.value)}
-          >
-            <option value="fcfs">FCFS</option>
-            <option value="priority">Priority</option>
-            <option value="predictive">Predictive</option>
-          </select>
-        </div>
-
-      </div>
-
-      {/* BUTTON */}
-      <button
-        onClick={runSimulation}
+      {/* ORDER BOOK */}
+      <div
         style={{
-          marginTop: "20px",
-          padding: "10px 20px",
-          background: "linear-gradient(135deg, #22c55e, #16a34a)",
-          border: "none",
-          borderRadius: "8px",
-          color: "white",
-          fontWeight: "600",
-          cursor: "pointer",
-          boxShadow: "0 0 10px rgba(34,197,94,0.4)"
+          display: "flex",
+          gap: "20px",
+          marginTop: "20px"
         }}
       >
-        Run Simulation
-      </button>
+        {/* BUY SIDE */}
+        <div
+          style={{
+            flex: 1,
+            background: "#1e293b",
+            padding: "15px",
+            borderRadius: "10px"
+          }}
+        >
+          <h3 style={{ color: "#22c55e" }}>🟢 BUY Orders</h3>
 
-      {/* METRICS */}
-      {data && (
-        <div style={{ display: "flex", gap: "20px", marginTop: "30px" }}>
-          <div style={cardStyle}>
-            FCFS: {data.metrics.fcfs_avg_wait.toFixed(2)}
-          </div>
-          <div style={cardStyle}>
-            Priority: {data.metrics.priority_avg_wait.toFixed(2)}
-          </div>
-          <div style={cardStyle}>
-            Predictive: {data.metrics.predictive_avg_wait.toFixed(2)}
-          </div>
+          {buyOrders.length === 0 ? (
+            <p style={{ fontSize: "12px", color: "#94a3b8" }}>No buy orders</p>
+          ) : (
+            buyOrders.map((o, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  borderBottom: "1px solid #334155",
+                  padding: "6px 0",
+                  fontSize: "13px"
+                }}
+              >
+                <span style={{ color: "#94a3b8" }}>#{o.order_id}</span>
+                <span>{o.quantity} qty</span>
+                <span>P{o.priority}</span>
+              </div>
+            ))
+          )}
         </div>
-      )}
 
-      {/* CHART */}
-      {data && (
-        <div style={{ marginTop: "30px" }}>
-          <BarChart width={600} height={300} data={chartData}>
-            <CartesianGrid stroke="#334155" />
-            <XAxis dataKey="name" stroke="white" />
-            <YAxis stroke="white" />
-            <Tooltip />
-            <Bar dataKey="value" fill="#22c55e" />
-          </BarChart>
+        {/* SELL SIDE */}
+        <div
+          style={{
+            flex: 1,
+            background: "#1e293b",
+            padding: "15px",
+            borderRadius: "10px"
+          }}
+        >
+          <h3 style={{ color: "#ef4444" }}>🔴 SELL Orders</h3>
+
+          {sellOrders.length === 0 ? (
+            <p style={{ fontSize: "12px", color: "#94a3b8" }}>No sell orders</p>
+          ) : (
+            sellOrders.map((o, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  borderBottom: "1px solid #334155",
+                  padding: "6px 0",
+                  fontSize: "13px"
+                }}
+              >
+                <span style={{ color: "#94a3b8" }}>#{o.order_id}</span>
+                <span>{o.quantity} qty</span>
+                <span>P{o.priority}</span>
+              </div>
+            ))
+          )}
         </div>
-      )}
+      </div>
 
-      {/* TIMELINE */}
-      {data && (
-        <div style={{ marginTop: "40px" }}>
-          <h2>⏱ Execution Timeline</h2>
+      {/* TOP PANEL */}
+      <div style={{ display: "flex", gap: "20px" }}>
+        <div style={{ flex: 1, background: "#1e293b", padding: "15px", borderRadius: "10px" }}>
+          <h2>💰 Price: {price}</h2>
+          <h3>📦 Queue: {queue}</h3>
 
-          <BarChart
-            width={800}
-            height={300}
-            data={timelineData}
-            layout="vertical"
+          {order && (
+            <>
+              <p>ID: {order.order_id}</p>
+              <p style={{ color: order.type === "BUY" ? "#22c55e" : "#ef4444" }}>
+                {order.type}
+              </p>
+              <p>Priority: {order.priority}</p>
+              <p>Wait: {order.wait_time}</p>
+            </>
+          )}
+        </div>
+
+        <div style={{ flex: 1, background: "#1e293b", padding: "15px", borderRadius: "10px", maxHeight: "200px", overflow: "auto" }}>
+          <h3>🧾 Queue Preview</h3>
+          {history.slice(-10).map((h, i) => (
+            <div key={i} style={{ fontSize: "12px", borderBottom: "1px solid #334155", padding: "4px" }}>
+              FCFS: {h.fcfs} | P: {h.priority} | H: {h.hybrid}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* BUTTONS */}
+      <div style={{ marginTop: "20px", display: "flex", gap: "10px" }}>
+        {["all", "fcfs", "priority", "hybrid"].map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            style={{
+              padding: "8px 16px",
+              borderRadius: "8px",
+              border: "none",
+              cursor: "pointer",
+              fontWeight: "bold",
+              backgroundColor: mode === m ? "#38bdf8" : "#334155",
+              color: "white"
+            }}
           >
-            <CartesianGrid stroke="#334155" />
-            <XAxis type="number" stroke="white" />
-            <YAxis dataKey="name" type="category" stroke="white" />
-            <Tooltip />
+            {m.toUpperCase()}
+          </button>
+        ))}
+      </div>
 
-            <Bar dataKey="start" stackId="a" fill="transparent" />
-            <Bar dataKey="duration" stackId="a" fill="#38bdf8" />
-          </BarChart>
+      {/* GRAPH */}
+      <div style={{ marginTop: "30px", background: "#1e293b", padding: "20px", borderRadius: "10px" }}>
+        <h3>📊 Scheduler Comparison</h3>
+
+        <LineChart width={800} height={300} data={history}>
+
+
+          <XAxis dataKey="id" tick={false} />
+          <YAxis />
+          <Tooltip />
+          <Legend />
+
+          <YAxis
+            label={{
+              value: "Wait Time ↑",
+              angle: -90,
+              position: "insideLeft",
+              fill: "white"
+            }}
+          />
+
+          <XAxis
+            dataKey="id"
+            tick={false}
+            label={{
+              value: "Time →",
+              position: "insideBottomRight",
+              fill: "white"
+            }}
+          />
+
+          {(mode === "all" || mode === "fcfs") && (
+            <Line type="monotone" dataKey="fcfs" stroke="#3b82f6" strokeWidth={2} />
+          )}
+
+          {(mode === "all" || mode === "priority") && (
+            <Line type="monotone" dataKey="priority" stroke="#ef4444" strokeWidth={2} />
+          )}
+
+          {(mode === "all" || mode === "hybrid") && (
+            <Line type="monotone" dataKey="hybrid" stroke="#22c55e" strokeWidth={2} />
+          )}
+        </LineChart>
+      </div>
+
+      {/* 🔥 PERFORMANCE PANEL */}
+      <div style={{
+        marginTop: "30px",
+        background: "#1e293b",
+        padding: "20px",
+        borderRadius: "10px"
+      }}>
+        <h3>📊 Performance Comparison</h3>
+
+        <div style={{ marginTop: "10px" }}>
+          <p style={{ color: stats.fcfs == best ? "#22c55e" : "white" }}>
+            🔵 FCFS Avg Wait: {stats.fcfs}
+          </p>
+
+          <p style={{ color: stats.priority == best ? "#22c55e" : "white" }}>
+            🔴 Priority Avg Wait: {stats.priority}
+          </p>
+
+          <p style={{ color: stats.hybrid == best ? "#22c55e" : "white" }}>
+            🟢 Hybrid Avg Wait: {stats.hybrid}
+          </p>
         </div>
-      )}
+      </div>
 
-      {/* TABLE */}
-      {data && (
-        <table style={{ marginTop: "20px", width: "100%" }}>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Type</th>
-              <th>User</th>
-              <th>Priority</th>
-              <th>Burst</th>
-            </tr>
-          </thead>
+      <div style={{ marginTop: "20px", fontSize: "14px", color: "#94a3b8" }}>
+        Hybrid scheduling reduces wait time during high load by balancing priority and arrival time.
+      </div>
 
-          <tbody>
-            {visibleOrders.map((o) => (
-              <tr key={o.order_id}>
-                <td>{o.order_id}</td>
-                <td style={{
-                  color: o.type === "BUY" ? "#22c55e" : "#ef4444"
-                }}>
-                  {o.type}
-                </td>
-                <td>{o.user_type}</td>
-                <td>{o.priority}</td>
-                <td>{o.burst_time}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
 
+
+      {/* QUEUE GRAPH */}
+      <div style={{ marginTop: "20px", background: "#1e293b", padding: "20px", borderRadius: "10px" }}>
+        <h3>📦 Queue Buildup</h3>
+
+        <LineChart width={800} height={200} data={history}>
+          <XAxis dataKey="id" tick={false} />
+          <YAxis
+            label={{
+              value: "Wait Time ↑",
+              angle: -90,
+              position: "insideLeft",
+              fill: "white"
+            }}
+          />
+          <XAxis
+            dataKey="id"
+            tick={false}
+            label={{
+              value: "Time →",
+              position: "insideBottomRight",
+              fill: "white"
+            }}
+          />
+          <YAxis />
+          <Tooltip />
+
+          <Line type="monotone" dataKey="queue" stroke="#a855f7" strokeWidth={2} />
+        </LineChart>
+
+      </div>
     </div>
+    
   );
 }
-
-const cardStyle = {
-  background: "#0f172a",
-  padding: "20px",
-  borderRadius: "12px",
-  border: "1px solid #1e293b",
-  minWidth: "140px",
-  textAlign: "center"
-};
 
 export default App;
