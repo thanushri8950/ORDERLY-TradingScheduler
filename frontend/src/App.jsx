@@ -82,7 +82,20 @@ function App() {
       }}
     >
       <h1 style={{ color: "#38bdf8" }}>📈 Trading Terminal</h1>
-      <h3>⚡ Executing: {order?.order_id}</h3>
+     
+
+
+
+     
+
+{/* 🔥 ADD HERE */}
+{queue > 30 && (
+  <h3 style={{ color: "#ef4444" }}>
+    🚨 Market Under Stress
+  </h3>
+)}
+
+<h3>⚡ Executing: {order?.order_id}</h3>
 
       {/* ORDER BOOK */}
       <div
