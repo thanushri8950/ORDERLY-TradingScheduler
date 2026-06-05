@@ -452,34 +452,199 @@ const OsConceptsTab = () => (
 );
 
 // ── PERFORMANCE TAB ──────────────────────────────────────────────────────────
-const PerformanceTab = ({ stats, history, log }) => {
+const PerformanceTab = ({ stats, history, log, benchmarkResult, benchmarkRunning, runBenchmark, starvationMode, toggleStarvation, userTypeCounts }) => {
   const best = Math.min(Number(stats.fcfs)||Infinity, Number(stats.priority)||Infinity, Number(stats.hybrid)||Infinity);
-  const improvement_fcfs   = stats.fcfs     !== "0.000" ? (((Number(stats.fcfs)     - Number(stats.hybrid)) / Number(stats.fcfs))     * 100).toFixed(1) : "0.0";
-  const improvement_prio   = stats.priority !== "0.000" ? (((Number(stats.priority) - Number(stats.hybrid)) / Number(stats.priority)) * 100).toFixed(1) : "0.0";
+  const imp_fcfs = stats.fcfs !== "0.000" ? (((Number(stats.fcfs) - Number(stats.hybrid)) / Number(stats.fcfs)) * 100).toFixed(1) : "0.0";
+  const imp_prio = stats.priority !== "0.000" ? (((Number(stats.priority) - Number(stats.hybrid)) / Number(stats.priority)) * 100).toFixed(1) : "0.0";
+  const totalOrders = Object.values(userTypeCounts).reduce((a,b)=>a+b, 0) || 1;
+
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+
+      {/* KPI row */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12 }}>
-        <MetricCard label="Hybrid vs FCFS Improvement" value={`${improvement_fcfs}%`} color={C.green} sub="Lower wait time advantage" accent={C.green} bg={C.greenBg}/>
-        <MetricCard label="Hybrid vs Priority Improvement" value={`${improvement_prio}%`} color={C.green} sub="Lower wait time advantage" accent={C.green} bg={C.greenBg}/>
-        <MetricCard label="Best Avg Wait Time" value={`${stats.hybrid}s`} color={C.green} sub="Hybrid scheduler — current session" accent={C.green} bg={C.greenBg}/>
+        <MetricCard label="Hybrid vs FCFS Improvement" value={`${imp_fcfs}%`} color={C.green} sub="Measured from real timestamps" accent={C.green} bg={C.greenBg}/>
+        <MetricCard label="Hybrid vs Priority Improvement" value={`${imp_prio}%`} color={C.green} sub="Measured from real timestamps" accent={C.green} bg={C.greenBg}/>
+        <MetricCard label="Best Avg Wait Time" value={`${stats.hybrid}s`} color={C.green} sub="Hybrid — current session rolling avg" accent={C.green} bg={C.greenBg}/>
       </div>
 
+      {/* ── BENCHMARK BUTTON ── */}
+      <div style={{ border:`1px solid ${C.border}`, borderTop:`3px solid ${C.amber}` }}>
+        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div>
+            <div style={{ fontFamily:C.serif, fontSize:16, fontWeight:"bold", marginBottom:3 }}>Run Benchmark</div>
+            <div style={{ fontFamily:C.sans, fontSize:11, color:C.textMuted }}>
+              Forces 35 seconds of crash mode, then fetches real measured stats from the backend. Use this during demo to generate proof numbers on demand.
+            </div>
+          </div>
+          <button
+            onClick={runBenchmark}
+            disabled={benchmarkRunning}
+            style={{
+              background: benchmarkRunning ? C.bgGray : C.black,
+              color: benchmarkRunning ? C.textMuted : "#fff",
+              border: `1px solid ${benchmarkRunning ? C.border : C.black}`,
+              fontFamily: C.sans, fontSize: 12, fontWeight: "bold",
+              padding: "10px 24px", cursor: benchmarkRunning ? "not-allowed" : "pointer",
+              letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0,
+              transition: "background 0.2s",
+            }}
+          >
+            {benchmarkRunning ? "Running… (35s)" : "▶ Run Benchmark"}
+          </button>
+        </div>
+
+        {benchmarkRunning && (
+          <div style={{ padding:"12px 16px", background:C.amberBg, borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:10 }}>
+            <div style={{ width:10, height:10, borderRadius:"50%", background:C.amber, animation:"blink 0.8s infinite" }}/>
+            <span style={{ fontFamily:C.sans, fontSize:11, color:C.amber, fontWeight:"bold" }}>
+              Forcing crash mode — collecting wait time data across all three schedulers…
+            </span>
+          </div>
+        )}
+
+        {benchmarkResult && !benchmarkResult.error && (
+          <div style={{ padding:"16px" }}>
+            <div style={{ fontFamily:C.sans, fontSize:11, fontWeight:"bold", color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:12 }}>
+              Benchmark Results — {benchmarkResult.session?.total_ticks} ticks · {benchmarkResult.session?.crash_ticks} crash events ({benchmarkResult.session?.crash_percentage}%)
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:16 }}>
+              {[
+                { label:"FCFS Avg Wait",     val:`${benchmarkResult.average_wait_time?.fcfs}s`,     color:C.red   },
+                { label:"Priority Avg Wait", val:`${benchmarkResult.average_wait_time?.priority}s`, color:C.amber },
+                { label:"Hybrid Avg Wait",   val:`${benchmarkResult.average_wait_time?.hybrid}s`,   color:C.green },
+              ].map((m,i) => (
+                <div key={i} style={{ background:C.bgSection, border:`1px solid ${C.border}`, padding:"10px 14px" }}>
+                  <div style={{ fontFamily:C.sans, fontSize:10, color:C.textMuted, textTransform:"uppercase", marginBottom:4 }}>{m.label}</div>
+                  <div style={{ fontFamily:C.mono, fontSize:18, fontWeight:"bold", color:m.color }}>{m.val}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              <div style={{ background:C.greenBg, border:`1px solid ${C.greenLight}`, padding:"10px 14px" }}>
+                <div style={{ fontFamily:C.sans, fontSize:10, color:C.textMuted, textTransform:"uppercase", marginBottom:4 }}>Hybrid improvement vs FCFS</div>
+                <div style={{ fontFamily:C.mono, fontSize:20, fontWeight:"bold", color:C.green }}>{benchmarkResult.hybrid_improvement?.vs_fcfs_pct}%</div>
+                <div style={{ fontFamily:C.sans, fontSize:10, color:C.textMuted, marginTop:3 }}>lower average wait time</div>
+              </div>
+              <div style={{ background:C.greenBg, border:`1px solid ${C.greenLight}`, padding:"10px 14px" }}>
+                <div style={{ fontFamily:C.sans, fontSize:10, color:C.textMuted, textTransform:"uppercase", marginBottom:4 }}>P95 Wait — FCFS vs Hybrid</div>
+                <div style={{ fontFamily:C.mono, fontSize:20, fontWeight:"bold", color:C.text }}>
+                  <span style={{ color:C.red }}>{benchmarkResult.p95_wait_time?.fcfs}s</span>
+                  <span style={{ color:C.textMuted, fontSize:14 }}> → </span>
+                  <span style={{ color:C.green }}>{benchmarkResult.p95_wait_time?.hybrid}s</span>
+                </div>
+                <div style={{ fontFamily:C.sans, fontSize:10, color:C.textMuted, marginTop:3 }}>95th percentile latency reduction</div>
+              </div>
+            </div>
+          </div>
+        )}
+        {benchmarkResult?.error && (
+          <div style={{ padding:"12px 16px", background:C.redBg }}>
+            <span style={{ fontFamily:C.sans, fontSize:11, color:C.red }}>{benchmarkResult.error}</span>
+          </div>
+        )}
+      </div>
+
+      {/* ── STARVATION DEMO ── */}
+      <div style={{ border:`1px solid ${starvationMode ? C.red : C.border}`, borderTop:`3px solid ${starvationMode ? C.red : C.purple}` }}>
+        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${starvationMode ? C.red : C.border}`, background:starvationMode ? C.redBg : C.bg, display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:20 }}>
+          <div>
+            <div style={{ fontFamily:C.serif, fontSize:16, fontWeight:"bold", marginBottom:3, color:starvationMode ? C.red : C.text }}>
+              Starvation Demo {starvationMode ? "— ACTIVE" : ""}
+            </div>
+            <div style={{ fontFamily:C.sans, fontSize:11, color:C.textMuted, lineHeight:1.6, maxWidth:540 }}>
+              {starvationMode
+                ? "Pure Priority mode is ON — aging disabled. Watch low-priority (P1/P2) Retail orders accumulate in the queue and never get dispatched while P5 HFT orders keep arriving. This is starvation. Switch back to see Hybrid's aging fix it."
+                : "Enable pure Priority mode (no aging). Low-priority orders will starve — they never execute because high-priority orders keep arriving. This proves why Hybrid (Priority + Aging) is necessary. OS analog: a process stuck in the ready queue indefinitely."}
+            </div>
+          </div>
+          <button
+            onClick={toggleStarvation}
+            style={{
+              background: starvationMode ? C.red : C.bg,
+              color: starvationMode ? "#fff" : C.text,
+              border: `2px solid ${starvationMode ? C.red : C.borderDk}`,
+              fontFamily: C.sans, fontSize: 11, fontWeight: "bold",
+              padding: "8px 18px", cursor: "pointer",
+              letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0,
+            }}
+          >
+            {starvationMode ? "■ Disable (Restore Hybrid)" : "▶ Enable Starvation Demo"}
+          </button>
+        </div>
+        {starvationMode && (
+          <div style={{ padding:"12px 16px", display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <div style={{ background:C.redBg, border:`1px solid ${C.red}`, padding:"10px 14px" }}>
+              <div style={{ fontFamily:C.sans, fontSize:10, fontWeight:"bold", color:C.red, marginBottom:6, textTransform:"uppercase" }}>What you should see (Priority only)</div>
+              <div style={{ fontFamily:C.sans, fontSize:11, color:C.textMid, lineHeight:1.6 }}>
+                P1/P2 Retail orders pile up in the queue. P5 HFT orders get dispatched every tick. Wait time for FCFS climbs — but Priority wait stays low only because it keeps picking the same high-priority orders.
+              </div>
+            </div>
+            <div style={{ background:C.greenBg, border:`1px solid ${C.greenLight}`, padding:"10px 14px" }}>
+              <div style={{ fontFamily:C.sans, fontSize:10, fontWeight:"bold", color:C.green, marginBottom:6, textTransform:"uppercase" }}>Disable to restore Hybrid behavior</div>
+              <div style={{ fontFamily:C.sans, fontSize:11, color:C.textMid, lineHeight:1.6 }}>
+                Hybrid aging kicks in — orders waiting {">"}2s get priority-boosted. Low-priority orders eventually get dispatched. Queue stabilizes. This is the OS solution to starvation.
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── USER TYPE BREAKDOWN ── */}
+      <div style={{ border:`1px solid ${C.border}` }}>
+        <div style={{ padding:"12px 16px", borderBottom:`2px solid ${C.black}` }}>
+          <span style={{ fontFamily:C.serif, fontSize:18, fontWeight:"bold" }}>Order Source Breakdown</span>
+          <span style={{ fontFamily:C.sans, fontSize:11, color:C.textMuted, marginLeft:12 }}>Who is generating orders — this drives the priority distribution</span>
+        </div>
+        <div style={{ padding:"16px", display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16 }}>
+          {[
+            { type:"Retail",      color:C.amber,  priority:"P1–P2", desc:"Individual investors. Lowest urgency. Most at risk of starvation under pure priority.",  bg:C.amberBg },
+            { type:"Institution", color:C.purple, priority:"P3–P4", desc:"Hedge funds, banks. Medium-high priority. Auto-escalate to P5 during crash mode.",       bg:C.purpleBg },
+            { type:"HFT",         color:C.red,    priority:"P5",    desc:"High-Frequency Trading bots. Highest priority always. Will dominate pure priority queue.", bg:C.redBg },
+          ].map(({ type, color, priority, desc, bg }) => {
+            const count = userTypeCounts[type] || 0;
+            const pct = Math.round((count / totalOrders) * 100);
+            return (
+              <div key={type} style={{ background:bg, border:`1px solid ${color}40`, borderTop:`3px solid ${color}`, padding:"14px" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:6 }}>
+                  <div style={{ fontFamily:C.sans, fontSize:13, fontWeight:"bold", color }}>{type}</div>
+                  <div style={{ fontFamily:C.mono, fontSize:11, color:C.textMuted }}>{priority}</div>
+                </div>
+                <div style={{ fontFamily:C.mono, fontSize:22, fontWeight:"bold", color, marginBottom:6 }}>{count}</div>
+                <div style={{ height:5, background:"rgba(0,0,0,0.08)", marginBottom:8 }}>
+                  <div style={{ width:`${pct}%`, height:"100%", background:color, transition:"width 0.5s ease" }}/>
+                </div>
+                <div style={{ fontFamily:C.sans, fontSize:10, color:C.textMuted, lineHeight:1.5 }}>{desc}</div>
+                <div style={{ fontFamily:C.mono, fontSize:10, color, marginTop:6 }}>{pct}% of observed orders</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Scheduler comparison table */}
       <div style={{ border:`1px solid ${C.border}` }}>
         <div style={{ padding:"12px 16px", borderBottom:`2px solid ${C.black}` }}>
           <span style={{ fontFamily:C.serif, fontSize:18, fontWeight:"bold" }}>Session Performance Summary</span>
         </div>
-        <SchedRow name="FCFS"     osName="Non-Preemptive"     osDesc="Arrival order. No priority awareness. Worst under burst load — high-priority orders wait behind backlog." wait={stats.fcfs}     best={best} color={C.red}   borderTop={false}/>
-        <SchedRow name="Priority" osName="Priority-Based"     osDesc="Priority-ordered. Risk of starvation for low-priority orders. Better than FCFS under moderate load."    wait={stats.priority} best={best} color={C.amber} borderTop/>
-        <SchedRow name="Hybrid"   osName="Priority + Aging"   osDesc="Best of both: priority-ordered with aging to prevent starvation. Consistently lowest average wait time."  wait={stats.hybrid}   best={best} color={C.green} borderTop/>
+        <div style={{ display:"grid", gridTemplateColumns:"120px 1fr 130px 80px", padding:"6px 16px", background:C.bgSection, borderBottom:`1px solid ${C.borderDk}` }}>
+          {["Scheduler","Behavior & Wait Indicator","Avg Wait Time","Status"].map((h,i)=>(
+            <div key={i} style={{ fontFamily:C.sans, fontSize:10, fontWeight:"bold", color:C.textMuted, textTransform:"uppercase", letterSpacing:"0.07em", textAlign:i>=2?"center":"left" }}>{h}</div>
+          ))}
+        </div>
+        <SchedRow name="FCFS"     osName="Non-Preemptive"   osDesc="Arrival order. No urgency. High-priority orders wait behind backlog under burst load." wait={stats.fcfs}     best={best} color={C.red}   borderTop={false}/>
+        <SchedRow name="Priority" osName="Priority-Based"   osDesc="Priority-ordered. Starvation risk for Retail/low-priority orders under sustained load."  wait={stats.priority} best={best} color={C.amber} borderTop/>
+        <SchedRow name="Hybrid"   osName="Priority + Aging" osDesc="Aging boosts long-waiting orders. No starvation. Lowest average wait time consistently." wait={stats.hybrid}   best={best} color={C.green} borderTop/>
       </div>
 
+      {/* Chart + log */}
       <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:16 }}>
         <div style={{ border:`1px solid ${C.border}` }}>
           <div style={{ padding:"12px 16px", borderBottom:`1px solid ${C.border}` }}>
             <span style={{ fontFamily:C.serif, fontSize:15, fontWeight:"bold" }}>All Schedulers — Wait Time History</span>
           </div>
           <div style={{ padding:"8px 0 0" }}>
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={200}>
               <LineChart data={history} margin={{ top:4, right:12, bottom:0, left:0 }}>
                 <XAxis dataKey="t" hide/><YAxis tick={axisProps} width={46} tickFormatter={v=>`${v.toFixed(1)}s`}/>
                 <Tooltip content={<ChartTip/>}/><Legend wrapperStyle={{ fontFamily:C.sans, fontSize:10 }} formatter={v=>v.toUpperCase()}/>
@@ -490,13 +655,11 @@ const PerformanceTab = ({ stats, history, log }) => {
             </ResponsiveContainer>
           </div>
         </div>
-
-        {/* System log */}
         <div style={{ border:`1px solid ${C.border}`, display:"flex", flexDirection:"column" }}>
           <div style={{ padding:"10px 12px", borderBottom:`1px solid ${C.border}` }}>
             <span style={{ fontFamily:C.serif, fontSize:15, fontWeight:"bold" }}>System Log</span>
           </div>
-          <div style={{ flex:1, overflowY:"auto" }}>
+          <div style={{ flex:1, overflowY:"auto", maxHeight:220 }}>
             {log.length===0
               ?<div style={{ fontFamily:C.sans, fontSize:11, color:C.textMuted, textAlign:"center", padding:"20px 0" }}>Awaiting events…</div>
               :log.map((e,i)=>(
@@ -531,7 +694,12 @@ export default function App() {
   const [priceHist, setPH]        = useState([]);
   const [stats, setStats]         = useState({ fcfs:"0.000", priority:"0.000", hybrid:"0.000" });
   const [log, setLog]             = useState([]);
+  const [benchmarkResult, setBenchmark] = useState(null);
+  const [benchmarkRunning, setBenchRunning] = useState(false);
+  const [starvationMode, setStarvationMode] = useState(false); // pure priority, no aging
+  const [userTypeCounts, setUserTypeCounts] = useState({ Retail:0, Institution:0, HFT:0 });
   const tickRef = useRef(0);
+  const starvationRef = useRef(false);
 
   useEffect(() => {
     const ws = new WebSocket("ws://127.0.0.1:8000/ws");
@@ -549,6 +717,13 @@ export default function App() {
       setQueue(d.queue_length);
       setBuy(d.buy_orders || []);
       setSell(d.sell_orders || []);
+      // Track user type counts from order book
+      const allOrders = [...(d.buy_orders||[]), ...(d.sell_orders||[])];
+      setUserTypeCounts(prev => {
+        const next = { ...prev };
+        allOrders.forEach(o => { if (o.user_type && next[o.user_type] !== undefined) next[o.user_type]++; });
+        return next;
+      });
       setStats(prev => ({
         fcfs:     ((Number(prev.fcfs)     + Number(d.fcfs?.wait_time     || 0)) / 2).toFixed(3),
         priority: ((Number(prev.priority) + Number(d.priority?.wait_time || 0)) / 2).toFixed(3),
@@ -565,6 +740,26 @@ export default function App() {
 
   const priceUp = price >= prevPrice;
   const diff = Math.abs(price - prevPrice).toFixed(2);
+
+  const runBenchmark = async () => {
+    setBenchRunning(true);
+    setBenchmark(null);
+    try { await fetch("http://127.0.0.1:8000/benchmark/start"); } catch(e) {}
+    await new Promise(r => setTimeout(r, 35000));
+    try {
+      const res = await fetch("http://127.0.0.1:8000/stats");
+      setBenchmark(await res.json());
+    } catch(e) {
+      setBenchmark({ error: "Could not fetch /stats — is backend running?" });
+    }
+    setBenchRunning(false);
+  };
+
+  const toggleStarvation = () => {
+    const next = !starvationMode;
+    setStarvationMode(next);
+    fetch(`http://127.0.0.1:8000/mode/${next ? "priority_only" : "normal"}`).catch(()=>{});
+  };
 
   return (
     <>
@@ -654,7 +849,7 @@ export default function App() {
           {activeTab===1 && <SchedulersTab history={history} stats={stats}/>}
           {activeTab===2 && <QueueTab history={history} queue={queue} isCrash={isCrash}/>}
           {activeTab===3 && <OsConceptsTab/>}
-          {activeTab===4 && <PerformanceTab stats={stats} history={history} log={log}/>}
+          {activeTab===4 && <PerformanceTab stats={stats} history={history} log={log} benchmarkResult={benchmarkResult} benchmarkRunning={benchmarkRunning} runBenchmark={runBenchmark} starvationMode={starvationMode} toggleStarvation={toggleStarvation} userTypeCounts={userTypeCounts}/>}
         </div>
 
         <div style={{ borderTop:`1px solid ${C.border}`, padding:"10px 24px", display:"flex", justifyContent:"space-between", background:C.bgSection }}>
