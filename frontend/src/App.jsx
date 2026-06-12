@@ -241,9 +241,10 @@ const SchedulersTab = ({ history, stats }) => {
               <LineChart data={history} margin={{ top:4, right:12, bottom:0, left:0 }}>
                 <XAxis dataKey="t" hide /><YAxis tick={axisProps} width={46} tickFormatter={v=>`${v.toFixed(1)}s`}/>
                 <Tooltip content={<ChartTip/>}/><Legend wrapperStyle={{ fontFamily:C.sans, fontSize:10 }} formatter={v=>v.toUpperCase()}/>
-                <Line type="monotone" dataKey="fcfs" stroke={C.red} strokeWidth={1.5} dot={false} isAnimationActive={false}/>
-                <Line type="monotone" dataKey="priority" stroke={C.amber} strokeWidth={1.5} dot={false} isAnimationActive={false}/>
-                <Line type="monotone" dataKey="hybrid" stroke={C.green} strokeWidth={2} dot={false} isAnimationActive={false}/>
+              <Line type="monotone" dataKey="fcfs" stroke="#ff00ff" strokeWidth={5}/>
+<Line type="monotone" dataKey="priority" stroke="#0000ff" strokeWidth={5}/>
+<Line type="monotone" dataKey="hybrid" stroke="#00ff00" strokeWidth={5}/>
+<Line type="monotone" dataKey="hybrid" stroke="#00ff00" strokeWidth={5}/>
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -707,7 +708,16 @@ export default function App() {
     ws.onclose = () => setConn(false);
     ws.onerror = () => setConn(false);
     ws.onmessage = (e) => {
+      
       const d = JSON.parse(e.data);
+
+      console.log({
+  fcfs: d.fcfs?.wait_time,
+  priority: d.priority?.wait_time,
+  hybrid: d.hybrid?.wait_time
+});
+
+
       tickRef.current += 1;
       const t = tickRef.current;
       setTick(t);
@@ -815,7 +825,7 @@ export default function App() {
         {/* Page title */}
         <div style={{ borderBottom:`1px solid ${C.border}`, padding:"18px 24px 14px", display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:20 }}>
           <div>
-            <h1 style={{ fontFamily:C.serif, fontSize:26, fontWeight:"bold", letterSpacing:"-0.02em", marginBottom:5 }}>
+            <h1 style={{color: "#000", fontFamily:C.serif, fontSize:26, fontWeight:"bold", letterSpacing:"-0.02em", marginBottom:5 }}>
               {TABS[activeTab]}
             </h1>
             <p style={{ fontFamily:C.sans, fontSize:11, color:C.textMuted, lineHeight:1.5 }}>
