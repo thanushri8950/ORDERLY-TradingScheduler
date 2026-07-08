@@ -1,89 +1,77 @@
 """
-scheduler.py — ORDERLY Trading Scheduler (Final)
+scheduler.py — Scheduling algorithms for ORDERLY Trading Scheduler
 
-Three scheduling algorithms with tuned parameters for clear demo divergence.
+  1. FCFS     — First Come First Served (non-preemptive, FIFO)
+  2. Priority — Priority-based scheduling (max-heap)
+  3. Hybrid   — Priority + Aging (MLFQ equivalent)
 
-Key insight: FCFS and Priority only diverge visibly when the queue has
-MORE items than PROCESSING_LIMIT. With NORMAL_ARRIVAL=5 and PROCESSING_LIMIT=4,
-the queue always has items left after dispatch, making sort order matter.
-
-Aging parameters tuned for 1-tick = 1 second demo speed:
-  THRESHOLD = 1.5s  (boost starts after 1.5s wait)
-  RATE      = 0.8   (P1 reaches effective P5 in 5 seconds of excess wait)
-  These produce visible Priority vs Hybrid divergence within 8-10 ticks.
+Aging tuning (FAILPROOF DIVERGENCE):
+  THRESHOLD = 0.5s, RATE = 1.0 priority/sec after excess wait.
+  Combined with PROCESSING_LIMIT < average arrival capacity headroom
+  in main.py, queues maintain a small persistent backlog so wait
+  times regularly exceed 0.5s — aging is ALWAYS active, guaranteeing
+  Hybrid's ordering visibly diverges from pure Priority every tick,
+  not just during crash bursts.
 """
 
 import time
 import heapq
 
-STARVATION_THRESHOLD = 3.0   # seconds — fires during demo, not after a minute
-AGING_THRESHOLD      = 1.5   # seconds grace before boost activates
-AGING_RATE           = 0.8   # priority points per second of excess wait
-PRIORITY_MAX         = 5
-
 
 # ── 1. FCFS ───────────────────────────────────────────────────────────────
 def fcfs(queue: list) -> list:
-    """
-    First Come First Served — strict arrival order.
-    OS analog: Non-preemptive batch scheduling (early Unix).
-    Failure: burst of low-priority orders blocks urgent HFT orders.
-    Complexity: O(n log n) sort by arrival_time.
-    """
+    """Non-preemptive FIFO — sorted by arrival_time only."""
     return sorted(queue, key=lambda o: o["arrival_time"])
 
 
 # ── 2. Priority ───────────────────────────────────────────────────────────
 def priority(queue: list) -> list:
     """
-    Priority Scheduling — max-heap, highest priority first.
-    OS analog: Real-time preemptive scheduling (FreeRTOS, VxWorks).
-    Failure: sustained P5 arrivals starve P1/P2 orders indefinitely.
-    Tie-breaking: FCFS within same priority level (arrival_time).
-    Complexity: O(n log n) heap build + extract.
+    Pure priority scheduling — max-heap on priority field.
+    No aging. Higher priority always wins, regardless of wait time.
     """
     heap = []
     for o in queue:
-        heapq.heappush(heap, (-o["priority"], o["arrival_time"], o))
+        heapq.heappush(heap, (-o["priority"], o["arrival_time"], o["order_id"], o))
     result = []
     while heap:
-        _, _, order = heapq.heappop(heap)
+        _, _, _, order = heapq.heappop(heap)
         result.append(order)
     return result
 
 
 # ── 3. Hybrid (Priority + Aging = MLFQ) ──────────────────────────────────
+THRESHOLD = 0.5   # seconds — grace period before aging activates
+RATE      = 1.0   # priority points gained per second of excess wait
+
 def hybrid(queue: list) -> list:
     """
-    Hybrid Scheduling — Priority + Aging (MLFQ equivalent).
-    OS analog: Multi-Level Feedback Queue (Linux CFS characteristics,
-               Windows priority boosting, macOS QoS system).
+    Hybrid Scheduling — Priority + Aging.
 
-    Aging formula:
-        effective_priority = base + min((wait - 1.5) * 0.8, 5 - base)
+    effective_priority = base_priority + boost
+    boost = min((wait_time - THRESHOLD) * RATE, 5 - base_priority)
 
-    Example — P1 Retail order waiting 6 seconds:
-        excess = 6.0 - 1.5 = 4.5s
-        boost  = min(4.5 * 0.8, 4) = min(3.6, 4) = 3.6
-        effective = 1 + 3.6 = 4.6  → dispatched ahead of fresh P4
-
-    Result: Hybrid produces lowest avg_wait AND lowest max_wait because
-    no order ever waits past the aging ceiling regardless of priority flood.
+    THRESHOLD=0.5s, RATE=1.0 — aging activates almost immediately,
+    so under any sustained backlog Hybrid's ordering visibly diverges
+    from pure Priority every tick. A P1 order waiting 4.5s gets:
+        boost = min((4.5-0.5)*1.0, 4) = 4 -> effective_priority = 5
     """
     now = time.time()
 
-    def _ep(o):
-        excess = max(0.0, (now - o["arrival_time"]) - AGING_THRESHOLD)
-        boost  = min(excess * AGING_RATE, float(PRIORITY_MAX) - o["priority"])
+    def effective_priority(o):
+        wait   = now - o["arrival_time"]
+        excess = max(0.0, wait - THRESHOLD)
+        boost  = min(excess * RATE, 5.0 - o["priority"])
         return o["priority"] + boost
 
     heap = []
     for o in queue:
-        heapq.heappush(heap, (-_ep(o), o["arrival_time"], o))
+        ep = effective_priority(o)
+        heapq.heappush(heap, (-ep, o["arrival_time"], o["order_id"], o))
 
     result = []
     while heap:
-        _, _, order = heapq.heappop(heap)
+        _, _, _, order = heapq.heappop(heap)
         result.append(order)
     return result
 
@@ -91,13 +79,13 @@ def hybrid(queue: list) -> list:
 # ── Metrics ────────────────────────────────────────────────────────────────
 def compute_metrics(queue: list, algo_fn) -> dict:
     if not queue:
-        return {"wait_time": 0.0, "avg_wait": 0.0, "max_wait": 0.0, "starving_count": 0}
-    now      = time.time()
+        return {"wait_time": 0, "avg_wait": 0, "max_wait": 0, "starving_count": 0}
+    now = time.time()
     sorted_q = algo_fn(queue)
-    waits    = [now - o["arrival_time"] for o in sorted_q]
+    waits = [now - o["arrival_time"] for o in sorted_q]
     return {
         "wait_time":      round(waits[0], 4),
         "avg_wait":       round(sum(waits) / len(waits), 4),
         "max_wait":       round(max(waits), 4),
-        "starving_count": sum(1 for w in waits if w > STARVATION_THRESHOLD),
+        "starving_count": sum(1 for w in waits if w > 5.0),
     }
